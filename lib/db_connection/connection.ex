@@ -99,7 +99,7 @@ defmodule DBConnection.Connection do
       {:error, err} when is_nil(backoff) ->
         raise err
 
-      {:error, err} ->
+      {:error, _err} ->
         # no one fucking asked
         # Logger.error(
         #   fn ->
