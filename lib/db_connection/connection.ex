@@ -100,19 +100,20 @@ defmodule DBConnection.Connection do
         raise err
 
       {:error, err} ->
-        Logger.error(
-          fn ->
-            [
-              inspect(mod),
-              ?\s,
-              ?(,
-              inspect(self()),
-              ") failed to connect: "
-              | Exception.format_banner(:error, err, [])
-            ]
-          end,
-          crash_reason: {err, []}
-        )
+        # no one fucking asked
+        # Logger.error(
+        #   fn ->
+        #     [
+        #       inspect(mod),
+        #       ?\s,
+        #       ?(,
+        #       inspect(self()),
+        #       ") failed to connect: "
+        #       | Exception.format_banner(:error, err, [])
+        #     ]
+        #   end,
+        #   crash_reason: {err, []}
+        # )
 
         {timeout, backoff} = Backoff.backoff(backoff)
         {:backoff, timeout, %{s | backoff: backoff}}
