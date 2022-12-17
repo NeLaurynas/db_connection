@@ -9,8 +9,5 @@ ExUnit.start(
 Code.require_file("../../test/test_support.exs", __DIR__)
 
 defmodule TestPool do
-  use TestConnection, pool: DBConnection.Ownership, pool_size: 1
-
-  @doc false
-  def pool_type, do: DBConnection.Ownership
+  use TestConnection, pool: DBConnection.Ownership, pool_size: 1, ownership_log: :debug
 end
