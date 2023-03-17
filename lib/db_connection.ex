@@ -64,6 +64,15 @@ defmodule DBConnection do
 
   The `DBConnection.Query` protocol provide utility functions so that
   queries can be encoded and decoded without blocking the connection or pool.
+
+  ## Connection pools
+
+  DBConnection connections support using different pools via the `:pool` option
+  passed to `start_link/1`. The default pool is `DBConnection.ConnectionPool`.
+  Another supported pool that is commonly used for tests is `DBConnection.Ownership`.
+
+  For now, using *custom* pools is not supported since the API for pools is not
+  public.
   """
   require Logger
 
@@ -175,8 +184,7 @@ defmodule DBConnection do
 
   Return `{:ok, result, state}` to continue, `{status, state}` to notify caller
   that the transaction can not begin due to the transaction status `status`,
-  `{:error, exception, state}` (deprecated) to error without beginning the
-  transaction, or `{:disconnect, exception, state}` to error and disconnect.
+  or `{:disconnect, exception, state}` to error and disconnect.
 
   A callback implementation should only return `status` if it
   can determine the database's transaction status without side effect.
@@ -192,8 +200,7 @@ defmodule DBConnection do
   Handle committing a transaction. Return `{:ok, result, state}` on successfully
   committing transaction, `{status, state}` to notify caller that the
   transaction can not commit due to the transaction status `status`,
-  `{:error, exception, state}` (deprecated) to error and no longer be inside
-  transaction, or `{:disconnect, exception, state}` to error and disconnect.
+  or `{:disconnect, exception, state}` to error and disconnect.
 
   A callback implementation should only return `status` if it
   can determine the database's transaction status without side effect.
@@ -208,9 +215,7 @@ defmodule DBConnection do
   @doc """
   Handle rolling back a transaction. Return `{:ok, result, state}` on successfully
   rolling back transaction, `{status, state}` to notify caller that the
-  transaction can not rollback due to the transaction status `status`,
-  `{:error, exception, state}` (deprecated) to
-  error and no longer be inside transaction, or
+  transaction can not rollback due to the transaction status `status` or
   `{:disconnect, exception, state}` to error and disconnect.
 
   A callback implementation should only return `status` if it
@@ -368,7 +373,8 @@ defmodule DBConnection do
       See "Connection listeners" below
     * `:name` - A name to register the started process (see the `:name` option
       in `GenServer.start_link/3`)
-    * `:pool` - Chooses the pool to be started (default: `DBConnection.ConnectionPool`)
+    * `:pool` - Chooses the pool to be started (default: `DBConnection.ConnectionPool`). See
+      ["Connection pools"](#module-connection-pools).
     * `:pool_size` - Chooses the size of the pool (default: `1`)
     * `:idle_interval` - Controls the frequency we check for idle connections
       in the pool. We then notify each idle connection to ping the database.
