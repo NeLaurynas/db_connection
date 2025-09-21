@@ -32,22 +32,54 @@ defmodule DBConnectionTest do
     assert A.record(agent) == [{:connect, [[pool_index: 1] ++ opts]}]
   end
 
+  describe "available_start_options/0" do
+    test "returns all available start_link/2 options" do
+      assert DBConnection.available_start_options() == [
+               :after_connect,
+               :after_connect_timeout,
+               :connection_listeners,
+               :backoff_max,
+               :backoff_min,
+               :backoff_type,
+               :configure,
+               :idle_interval,
+               :idle_limit,
+               :max_restarts,
+               :max_seconds,
+               :name,
+               :pool,
+               :pool_size,
+               :queue_interval,
+               :queue_target,
+               :show_sensitive_data_on_connection_error
+             ]
+    end
+  end
+
+  describe "available_connection_options/0" do
+    test "returns all available function options" do
+      assert DBConnection.available_connection_options() == [:log, :queue, :timeout, :deadline]
+    end
+  end
+
   describe "connection_module/1" do
-    test "returns the connection module when given a pool pid" do
-      {:ok, pool} = P.start_link([])
+    setup do
+      {:ok, agent} = A.start_link([{:ok, :state}, {:idle, :state}, {:idle, :state}])
+      [agent: agent]
+    end
+
+    test "returns the connection module when given a pool pid", %{agent: agent} do
+      {:ok, pool} = P.start_link(agent: agent)
       assert {:ok, TestConnection} = DBConnection.connection_module(pool)
     end
 
-    test "returns the connection module when given a pool name", %{test: name} do
-      {:ok, _pool} = P.start_link(name: name)
+    test "returns the connection module when given a pool name", %{test: name, agent: agent} do
+      {:ok, _pool} = P.start_link(name: name, agent: agent)
       assert {:ok, TestConnection} = DBConnection.connection_module(name)
     end
 
-    test "returns the connection module when given a locked connection reference" do
-      {:ok, agent} = A.start_link([{:ok, :state}, {:idle, :state}, {:idle, :state}])
-
-      opts = [agent: agent]
-      {:ok, pool} = P.start_link(opts)
+    test "returns the connection module when given a locked connection reference", %{agent: agent} do
+      {:ok, pool} = P.start_link(agent: agent)
 
       P.run(pool, fn conn ->
         assert {:ok, TestConnection} = DBConnection.connection_module(conn)

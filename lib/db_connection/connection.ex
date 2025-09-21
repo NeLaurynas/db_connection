@@ -1,19 +1,3 @@
-defmodule DBConnection.ConnectionError do
-  defexception [:message, severity: :error, reason: :error]
-
-  @moduledoc """
-  The raised exception might include the reason which would be useful
-  to programmatically determine what was causing the error.
-  """
-
-  @doc false
-  def exception(message, reason) do
-    message
-    |> exception()
-    |> Map.replace!(:reason, reason)
-  end
-end
-
 defmodule DBConnection.Connection do
   @moduledoc false
 
@@ -22,6 +6,7 @@ defmodule DBConnection.Connection do
   require Logger
   alias DBConnection.Backoff
   alias DBConnection.Holder
+  alias DBConnection.Util
 
   @timeout 15_000
 
@@ -63,6 +48,10 @@ defmodule DBConnection.Connection do
   @doc false
   @impl :gen_statem
   def init({mod, opts, pool, tag}) do
+    pool_index = Keyword.get(opts, :pool_index)
+    label = if pool_index, do: "db_conn_#{pool_index}", else: "db_conn"
+    Util.set_label(label)
+
     s = %{
       mod: mod,
       opts: opts,
@@ -167,7 +156,7 @@ defmodule DBConnection.Connection do
     :ok = apply(mod, :disconnect, [err, state])
     s = %{s | state: nil, client: :closed, timer: nil}
 
-    notify_connection_listeners({:disconnected, self()}, s)
+    notify_connection_listeners(:disconnected, s)
 
     case client do
       _ when backoff == nil ->
@@ -241,7 +230,7 @@ defmodule DBConnection.Connection do
       opts: opts
     } = s
 
-    notify_connection_listeners({:connected, self()}, s)
+    notify_connection_listeners(:connected, s)
 
     case apply(mod, :checkout, [state]) do
       {:ok, state} ->
@@ -263,7 +252,7 @@ defmodule DBConnection.Connection do
   def handle_event(:cast, {:connected, ref}, :no_state, %{client: {ref, :connect}} = s) do
     %{mod: mod, state: state} = s
 
-    notify_connection_listeners({:connected, self()}, s)
+    notify_connection_listeners(:connected, s)
 
     case apply(mod, :checkout, [state]) do
       {:ok, state} ->
@@ -284,7 +273,9 @@ defmodule DBConnection.Connection do
         :no_state,
         %{client: {ref, :after_connect}} = s
       ) do
-    message = "client #{inspect(pid)} exited: " <> Exception.format_exit(reason)
+    message =
+      "client #{Util.inspect_pid(pid)} exited: " <> Exception.format_exit(reason)
+
     err = DBConnection.ConnectionError.exception(message)
 
     {:keep_state, %{s | client: {nil, :after_connect}},
@@ -292,7 +283,9 @@ defmodule DBConnection.Connection do
   end
 
   def handle_event(:info, {:DOWN, mon, _, pid, reason}, :no_state, %{client: {ref, mon}} = s) do
-    message = "client #{inspect(pid)} exited: " <> Exception.format_exit(reason)
+    message =
+      "client #{Util.inspect_pid(pid)} exited: " <> Exception.format_exit(reason)
+
     err = DBConnection.ConnectionError.exception(message)
 
     {:keep_state, %{s | client: {ref, nil}},
@@ -307,14 +300,14 @@ defmodule DBConnection.Connection do
       )
       when is_reference(timer) do
     message =
-      "client #{inspect(pid)} timed out because it checked out " <>
+      "client #{Util.inspect_pid(pid)} timed out because it checked out " <>
         "the connection for longer than #{timeout}ms"
 
     exc =
       case Process.info(pid, :current_stacktrace) do
         {:current_stacktrace, stacktrace} ->
           message <>
-            "\n\n#{inspect(pid)} was at location:\n\n" <>
+            "\n\n#{Util.inspect_pid(pid)} was at location:\n\n" <>
             Exception.format_stacktrace(stacktrace)
 
         _ ->
@@ -342,6 +335,11 @@ defmodule DBConnection.Connection do
     end
   end
 
+  # We discard EXIT messages which may arrive if the process is trapping exits
+  def handle_event(:info, {:EXIT, _, _}, :no_state, s) do
+    handle_timeout(s)
+  end
+
   def handle_event(:info, msg, :no_state, %{mod: mod} = s) do
     Logger.info(fn ->
       [inspect(mod), ?\s, ?(, inspect(self()), ") missed message: " | inspect(msg)]
@@ -352,9 +350,24 @@ defmodule DBConnection.Connection do
 
   @doc false
   @impl :gen_statem
+  # If client is :closed then the connection was previously disconnected
+  # and cleanup is not required.
+  def terminate(_, _, %{client: :closed}), do: :ok
+
+  def terminate(reason, _, s) do
+    %{mod: mod, state: state} = s
+    msg = "connection exited: " <> Exception.format_exit(reason)
+
+    msg
+    |> DBConnection.ConnectionError.exception()
+    |> mod.disconnect(state)
+  end
+
+  @doc false
+  @impl :gen_statem
   def format_status(info, [_, :no_state, %{client: :closed, mod: mod}]) do
     case info do
-      :normal -> [{:data, [{'Module', mod}]}]
+      :normal -> [{:data, [{~c"Module", mod}]}]
       :terminate -> mod
     end
   end
@@ -480,7 +493,7 @@ defmodule DBConnection.Connection do
   end
 
   defp normal_status_default(mod, state) do
-    [{:data, [{'Module', mod}, {'State', state}]}]
+    [{:data, [{~c"Module", mod}, {~c"State", state}]}]
   end
 
   defp terminate_status(mod, pdict, state) do
@@ -505,9 +518,18 @@ defmodule DBConnection.Connection do
     end
   end
 
-  defp notify_connection_listeners(message, %{} = state) do
+  defp notify_connection_listeners(action, %{} = state) do
     %{connection_listeners: connection_listeners} = state
 
-    Enum.each(connection_listeners, &send(&1, message))
+    {listeners, message} =
+      case connection_listeners do
+        listeners when is_list(listeners) ->
+          {listeners, {action, self()}}
+
+        {listeners, tag} when is_list(listeners) ->
+          {listeners, {action, self(), tag}}
+      end
+
+    Enum.each(listeners, &send(&1, message))
   end
 end

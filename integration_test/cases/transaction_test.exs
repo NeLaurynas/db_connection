@@ -3,6 +3,7 @@ defmodule TransactionTest do
 
   alias TestPool, as: P
   alias TestAgent, as: A
+  alias TestQuery, as: Q
 
   test "transaction returns result" do
     stack = [
@@ -364,6 +365,7 @@ defmodule TransactionTest do
       fn _, _ ->
         raise "oops"
       end,
+      :ok,
       {:ok, :state2}
     ]
 
@@ -396,7 +398,8 @@ defmodule TransactionTest do
 
     assert [
              {:connect, [_]},
-             {:handle_begin, [_, :state]} | _
+             {:handle_begin, [_, :state]},
+             {:disconnect, _} | _
            ] = A.record(agent)
   end
 
@@ -440,6 +443,7 @@ defmodule TransactionTest do
         {:ok, :state}
       end,
       :oops,
+      :ok,
       {:ok, :state}
     ]
 
@@ -468,7 +472,8 @@ defmodule TransactionTest do
 
     assert [
              {:connect, _},
-             {:handle_begin, [_, :state]} | _
+             {:handle_begin, [_, :state]},
+             {:disconnect, _} | _
            ] = A.record(agent)
   end
 
@@ -482,6 +487,7 @@ defmodule TransactionTest do
       fn _, _ ->
         raise "oops"
       end,
+      :ok,
       {:ok, :state}
     ]
 
@@ -507,7 +513,8 @@ defmodule TransactionTest do
 
     assert [
              {:connect, _},
-             {:handle_begin, [_, :state]} | _
+             {:handle_begin, [_, :state]},
+             {:disconnect, _} | _
            ] = A.record(agent)
   end
 
@@ -622,6 +629,7 @@ defmodule TransactionTest do
       end,
       {:ok, :began, :new_state},
       :oops,
+      :ok,
       {:ok, :state}
     ]
 
@@ -651,7 +659,8 @@ defmodule TransactionTest do
     assert [
              {:connect, _},
              {:handle_begin, [_, :state]},
-             {:handle_commit, [_, :new_state]} | _
+             {:handle_commit, [_, :new_state]},
+             {:disconnect, _} | _
            ] = A.record(agent)
   end
 
@@ -666,6 +675,7 @@ defmodule TransactionTest do
       fn _, _ ->
         raise "oops"
       end,
+      :ok,
       {:ok, :state}
     ]
 
@@ -689,7 +699,8 @@ defmodule TransactionTest do
     assert [
              {:connect, _},
              {:handle_begin, [_, :state]},
-             {:handle_commit, [_, :new_state]} | _
+             {:handle_commit, [_, :new_state]},
+             {:disconnect, _} | _
            ] = A.record(agent)
   end
 
@@ -703,6 +714,7 @@ defmodule TransactionTest do
       fn _, _ ->
         raise "oops"
       end,
+      :ok,
       {:ok, :state2}
     ]
 
@@ -738,7 +750,8 @@ defmodule TransactionTest do
     assert [
              {:connect, [_]},
              {:handle_begin, [_, :state]},
-             {:handle_commit, [_, :new_state]} | _
+             {:handle_commit, [_, :new_state]},
+             {:disconnect, _} | _
            ] = A.record(agent)
   end
 
@@ -802,6 +815,7 @@ defmodule TransactionTest do
       fn _, _ ->
         raise "oops"
       end,
+      :ok,
       {:ok, :state2}
     ]
 
@@ -837,7 +851,8 @@ defmodule TransactionTest do
     assert [
              {:connect, [_]},
              {:handle_begin, [_, :state]},
-             {:handle_rollback, [_, :new_state]} | _
+             {:handle_rollback, [_, :new_state]},
+             {:disconnect, _} | _
            ] = A.record(agent)
   end
 
@@ -1244,6 +1259,66 @@ defmodule TransactionTest do
                       :result
                     end)
            end) == {:ok, :result}
+
+    assert [
+             connect: [_],
+             handle_status: [_, :state],
+             handle_begin: [_, :new_state],
+             handle_commit: [_, :newer_state],
+             handle_status: [_, :newest_state]
+           ] = A.record(agent)
+  end
+
+  test "log query from handle_begin" do
+    stack = [
+      {:ok, :state},
+      {:ok, %Q{statement: "custom begin"}, :begin, :new_state},
+      {:ok, :committed, :newest_state}
+    ]
+
+    {:ok, agent} = A.start_link(stack)
+
+    parent = self()
+    opts = [agent: agent, parent: parent]
+    {:ok, pool} = P.start_link(opts)
+
+    log = &send(parent, &1)
+
+    assert P.transaction(pool, fn _ -> :result end, log: log) == {:ok, :result}
+
+    assert_received %DBConnection.LogEntry{call: :begin} = entry
+    assert %{query: "custom begin"} = entry
+
+    assert [
+             connect: [_],
+             handle_begin: [_, :state],
+             handle_commit: [_, :new_state]
+           ] = A.record(agent)
+  end
+
+  test "log query from handle_begin: transaction inside run" do
+    stack = [
+      {:ok, :state},
+      {:idle, :new_state},
+      {:ok, %Q{statement: "custom begin"}, :begin, :newer_state},
+      {:ok, :committed, :newest_state},
+      {:idle, :newest_state}
+    ]
+
+    {:ok, agent} = A.start_link(stack)
+
+    parent = self()
+    opts = [agent: agent, parent: parent]
+    {:ok, pool} = P.start_link(opts)
+
+    log = &send(parent, &1)
+
+    assert P.run(pool, fn conn ->
+             P.transaction(conn, fn _ -> :result end, log: log)
+           end) == {:ok, :result}
+
+    assert_received %DBConnection.LogEntry{call: :begin} = entry
+    assert %{query: "custom begin"} = entry
 
     assert [
              connect: [_],

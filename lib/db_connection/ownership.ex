@@ -1,4 +1,8 @@
 defmodule DBConnection.OwnershipError do
+  @moduledoc """
+  An exception for when errors with ownership occur.
+  """
+
   defexception [:message]
 
   def exception(message), do: %DBConnection.OwnershipError{message: message}
@@ -17,10 +21,11 @@ defmodule DBConnection.Ownership do
       implicitly. `{:shared, owner}` mode is also supported so
       processes are allowed on demand. On all cases, checkins are
       explicit via `ownership_checkin/2`. Defaults to `:auto`.
-    * `:ownership_timeout` - The maximum time that a process is allowed to own
-      a connection, default `120_000`. This timeout exists mostly for sanity
-      checking purposes and can be increased at will, since DBConnection
-      automatically checks in connections whenever there is a mode change.
+    * `:ownership_timeout` - The maximum time (in milliseconds) that a process
+      is allowed to own a connection or `:infinity`, default `120_000`.
+      This timeout exists mostly for sanity checking purposes and can be increased
+      at will, since DBConnection automatically checks in connections whenever
+      there is a mode change.
     * `:ownership_log` - The `Logger.level` to log ownership changes, or `nil`
       not to log, default `nil`.
 
@@ -80,13 +85,16 @@ defmodule DBConnection.Ownership do
     end
   end
 
+  @doc false
+  @impl DBConnection.Pool
+  defdelegate get_connection_metrics(pool), to: Manager
+
   @doc """
   Explicitly checks a connection out from the ownership manager.
 
   It may return `:ok` if the connection is checked out.
   `{:already, :owner | :allowed}` if the caller process already
-  has a connection, `:error` if it could be not checked out or
-  raise if there was an error.
+  has a connection, or raise if there was an error.
   """
   @spec ownership_checkout(GenServer.server(), Keyword.t()) ::
           :ok | {:already, :owner | :allowed}
@@ -136,6 +144,10 @@ defmodule DBConnection.Ownership do
   has a connection. `owner_or_allowed` may either be the owner or any
   other allowed process. Returns `:not_found` if the given process
   does not have any connection checked out.
+
+  Setting the `unallow_existing` option to `true` will remove the process given by `allow` from
+  any existing allowance it may have (this is necessary because a given process can only be
+  allowed on a single connection at a time).
   """
   @spec ownership_allow(GenServer.server(), owner_or_allowed :: pid, allow :: pid, Keyword.t()) ::
           :ok | {:already, :owner | :allowed} | :not_found

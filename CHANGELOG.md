@@ -1,5 +1,40 @@
 # Changelog
 
+## v2.8.1 (2025-06-24)
+
+* Enhancement
+  * Automatically set and read process labels in error reports
+
+## v2.8.0 (2025-06-24)
+
+* Enhancement
+  * Allow `unallow_existing` as an opt to `ownership_allow/4`
+  * Improve ETS performance by enabling descentralized counters
+  * Increase default queue interval to 2000ms
+
+## v2.7.0 (2024-07-02)
+
+* Enhancements
+  * Add API for retrieving pool metrics
+  * Include a built-in listener that emits telemetry events
+
+* Bug fixes
+  * Discard EXIT messages from trapped exits
+
+## v2.6.0 (2023-10-15)
+
+* Enhancements
+  * Call `disconnect` on terminate
+  * Allow `handle_begin` callbacks to return query for logging purposes
+  * Add `:connection_listeners_tag`
+  * Add `DBConnection.available_connection_options/0`
+  * Add `DBConnection.available_start_options/0`
+
+## v2.5.0 (2023-04-10)
+
+* Internal changes
+  * No longer depend on `connection`
+
 ## v2.4.3 (2022-11-22)
 
 * Bug fixes

@@ -1,4 +1,6 @@
 defmodule DBConnection.Backoff do
+  # This module provides a functional abstraction over backoffs with different types. It exposes
+  # a struct and a couple of functions to work with it.
   @moduledoc false
   @compile :nowarn_deprecated_function
 
@@ -8,9 +10,17 @@ defmodule DBConnection.Backoff do
   @min 1_000
   @max 30_000
 
+  @type t :: %__MODULE__{
+          type: :stop | :rand | :exp | :rand_exp,
+          min: non_neg_integer(),
+          max: non_neg_integer(),
+          state: term()
+        }
+
   defstruct [:type, :min, :max, :state]
 
-  def new(opts) do
+  @spec new(keyword) :: t | nil
+  def new(opts) when is_list(opts) do
     case Keyword.get(opts, :backoff_type, @default_type) do
       :stop ->
         nil
@@ -21,18 +31,21 @@ defmodule DBConnection.Backoff do
     end
   end
 
+  @spec backoff(t) :: {non_neg_integer, t}
+  def backoff(backoff)
+
   def backoff(%Backoff{type: :rand, min: min, max: max} = s) do
     {rand(min, max), s}
   end
 
   def backoff(%Backoff{type: :exp, min: min, state: nil} = s) do
-    {min, %Backoff{s | state: min}}
+    {min, %{s | state: min}}
   end
 
   def backoff(%Backoff{type: :exp, max: max, state: prev} = s) do
     require Bitwise
     next = min(Bitwise.<<<(prev, 1), max)
-    {next, %Backoff{s | state: next}}
+    {next, %{s | state: next}}
   end
 
   def backoff(%Backoff{type: :rand_exp, max: max, state: state} = s) do
@@ -40,14 +53,17 @@ defmodule DBConnection.Backoff do
     next_min = min(prev, lower)
     next_max = min(prev * 3, max)
     next = rand(next_min, next_max)
-    {next, %Backoff{s | state: {next, lower}}}
+    {next, %{s | state: {next, lower}}}
   end
 
+  @spec reset(t) :: t
+  def reset(backoff)
+
   def reset(%Backoff{type: :rand} = s), do: s
-  def reset(%Backoff{type: :exp} = s), do: %Backoff{s | state: nil}
+  def reset(%Backoff{type: :exp} = s), do: %{s | state: nil}
 
   def reset(%Backoff{type: :rand_exp, min: min, state: {_, lower}} = s) do
-    %Backoff{s | state: {min, lower}}
+    %{s | state: {min, lower}}
   end
 
   ## Internal

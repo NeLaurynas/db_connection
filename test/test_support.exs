@@ -1,3 +1,19 @@
+defmodule TestHelpers do
+  def poll(fun, attempts \\ 5) do
+    try do
+      fun.()
+    rescue
+      e ->
+        if attempts > 0 do
+          :timer.sleep(50)
+          poll(fun, attempts - 1)
+        else
+          reraise e, __STACKTRACE__
+        end
+    end
+  end
+end
+
 defmodule TestConnection do
   defmacro __using__(opts) do
     quote do
@@ -19,6 +35,7 @@ defmodule TestConnection do
       end
 
       defdelegate rollback(conn, reason), to: DBConnection
+      defdelegate get_connection_metrics(pool, opts \\ []), to: DBConnection
 
       def prepare(pool, query, opts2 \\ []) do
         DBConnection.prepare(pool, query, opts2 ++ unquote(opts))
@@ -71,6 +88,7 @@ defmodule TestConnection do
   def start_link(opts), do: DBConnection.start_link(__MODULE__, opts)
 
   def connect(opts) do
+    Process.flag(:trap_exit, true)
     put_agent_from_opts(opts)
     TestAgent.eval(:connect, [opts])
   end
@@ -145,7 +163,13 @@ defmodule TestConnection do
 end
 
 defmodule TestQuery do
-  defstruct [:state]
+  defstruct [:state, :statement]
+
+  defimpl String.Chars do
+    def to_string(%{statement: statement}) do
+      IO.iodata_to_binary(statement)
+    end
+  end
 end
 
 defmodule TestCursor do
